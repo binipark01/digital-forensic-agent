@@ -387,10 +387,10 @@ code {
 .eventHeader,
 .eventRow {
   display: grid;
-  grid-template-columns: minmax(170px, 0.9fr) minmax(130px, 0.65fr) minmax(260px, 1.5fr) 96px;
+  grid-template-columns: minmax(170px, 0.9fr) minmax(130px, 0.65fr) minmax(120px, 0.55fr) minmax(260px, 1.5fr) 96px;
   gap: 10px;
   align-items: center;
-  min-width: 760px;
+  min-width: 880px;
 }
 
 .eventHeader {
@@ -554,7 +554,6 @@ code {
 
   .eventHeader,
   .eventRow {
-    grid-template-columns: 150px 120px 240px 86px;
+    grid-template-columns: 150px 120px 120px 240px 86px;
   }
 }
-

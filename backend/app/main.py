@@ -32,6 +32,18 @@ def default_db_path() -> Path:
     return Path(os.environ.get("DFAA_DB_PATH", Path(__file__).resolve().parents[1] / "data" / "dfaa.sqlite3"))
 
 
+def cors_origins() -> list[str]:
+    configured = os.environ.get("DFAA_CORS_ORIGINS")
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:5174",
+        "http://localhost:5174",
+    ]
+
+
 def create_app(db_path: Path | str | None = None) -> FastAPI:
     db = Database(db_path or default_db_path())
     app = FastAPI(title="Digital Forensic Automation Agent", version=__version__)
@@ -39,7 +51,7 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+        allow_origins=cors_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

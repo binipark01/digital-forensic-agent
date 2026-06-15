@@ -72,16 +72,17 @@ def build_recommendations(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "title": "No forensic timeline events available yet",
                 "rationale": (
-                    "The case has no timeline evidence to summarize. Run analysis with a sidecar "
-                    "timeline or install Sleuth Kit CLI tools for direct image traversal."
+                    "The case has no timeline evidence to summarize. Register an extracted NTFS "
+                    "$MFT file for dfatool parsing, or provide a sidecar timeline for controlled "
+                    "fallback testing."
                 ),
                 "evidence_event_ids": [],
                 "next_steps": [
-                    "Confirm the image path is reachable from the backend process.",
-                    "Install `fls` and `mmls` or provide a sidecar timeline for controlled testing.",
+                    "Confirm the evidence path is reachable from the backend process.",
+                    "If the input is a full disk image, extract `$MFT` read-only before v1 analysis.",
+                    "Use Sleuth Kit only for explicit validation or comparison runs.",
                 ],
             }
         )
 
     return recommendations
-

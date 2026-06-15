@@ -23,6 +23,13 @@ forensics = [
   "pytsk3>=20230125",
 ]
 
+[project.scripts]
+dfatool = "dfatool.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*", "dfatool*"]
+exclude = ["data*", "tests*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

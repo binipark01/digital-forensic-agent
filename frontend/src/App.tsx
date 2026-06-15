@@ -371,6 +371,7 @@ export function App() {
                 <div className="eventHeader" role="row">
                   <span>Time</span>
                   <span>Action</span>
+                  <span>Artifact</span>
                   <span>Path</span>
                   <span>Confidence</span>
                 </div>
@@ -383,6 +384,7 @@ export function App() {
                   >
                     <span>{event.timestamp ?? "unknown"}</span>
                     <span>{event.action}</span>
+                    <span>{event.source_artifact}</span>
                     <span className={selectedEventIds.has(event.id) ? "evidencePath marked" : "evidencePath"}>{event.path}</span>
                     <span>{Math.round(event.confidence * 100)}%</span>
                   </button>
@@ -478,4 +480,3 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
     </button>
   );
 }
-

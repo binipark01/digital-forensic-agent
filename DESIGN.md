@@ -4,7 +4,7 @@
 - Status: Active
 - Last refreshed: 2026-06-12
 - Primary product surfaces: Local React dashboard, FastAPI case/timeline/report APIs
-- Evidence reviewed: Empty repository, approved v1 implementation plan, dfVFS/Sleuth Kit/Plaso official capability references
+- Evidence reviewed: Empty repository, approved v1 implementation plan, dfVFS/Sleuth Kit/Plaso official capability references, first-party dfatool MFT implementation
 
 ## Brand
 - Personality: Precise, restrained, analyst-focused, evidence-first
@@ -12,7 +12,7 @@
 - Avoid: Marketing-style hero pages, decorative graphics, unsupported AI conclusions, hidden parser assumptions
 
 ## Product goals
-- Goals: Register disk images, preserve read-only evidence handling, extract normalized NTFS timeline events, surface grounded recommendations, export reports
+- Goals: Register evidence paths, preserve read-only evidence handling, extract normalized NTFS `$MFT` timeline events with dfatool, surface grounded recommendations, export reports
 - Non-goals: Full forensic suite replacement, live acquisition, BitLocker decryption, browser/registry/prefetch triage in v1
 - Success signals: Analyst can register an image, run analysis, inspect evidence provenance, filter events, and export CSV/JSON/Markdown
 
@@ -24,7 +24,7 @@
 ## Information architecture
 - Primary navigation: Single operational dashboard with case list, active case work area, timeline, evidence, recommendations, reports
 - Core routes/screens: Cases, evidence image registration, analysis status, timeline explorer, event evidence panel, report generation
-- Content hierarchy: Active case summary first, analysis controls second, timeline/evidence review third, recommendation/report output last
+- Content hierarchy: Active case summary first, analysis controls second, timeline/evidence review with artifact source third, recommendation/report output last
 
 ## Design principles
 - Principle 1: Every investigative claim must point back to event IDs or parser provenance
@@ -67,17 +67,16 @@
 
 ## Content voice
 - Tone: Factual, concise, analyst-facing
-- Terminology: Use artifact names (`$MFT`, `$UsnJrnl:$J`, Recycle Bin), evidence event IDs, parser provenance
+- Terminology: Use artifact names (`NTFS:$MFT`, `$UsnJrnl:$J`, Recycle Bin), evidence event IDs, parser provenance
 - Microcopy rules: Never state AI output as a conclusion; label it as recommendation or next step
 
 ## Implementation constraints
 - Framework/styling system: FastAPI backend, React/Vite frontend, plain CSS
 - Design-token constraints: No separate design system until repeated components justify it
 - Performance constraints: Timeline endpoint paginates and UI requests 500 rows by default
-- Compatibility constraints: Backend runs without optional forensic parsers; direct image traversal requires Sleuth Kit CLI
+- Compatibility constraints: v1 directly parses extracted NTFS `$MFT` files; full disk image traversal remains future work; external forensic CLIs are validation/comparison only
 - Test/screenshot expectations: Backend pytest, frontend TypeScript build, browser smoke test after local dev servers start
 
 ## Open questions
-- [ ] Add first-party `$UsnJrnl:$J` and Recycle Bin parsers beyond Sleuth Kit bodyfile output / owner: implementation / impact: stronger deletion corroboration
+- [ ] Add first-party `$UsnJrnl:$J` and Recycle Bin parsers beyond MFT output / owner: implementation / impact: stronger deletion corroboration
 - [ ] Choose long-running job queue technology for multi-GB images / owner: architecture / impact: background processing reliability
-

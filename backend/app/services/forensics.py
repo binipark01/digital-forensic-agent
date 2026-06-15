@@ -6,6 +6,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from dfatool import __version__ as dfatool_version
+
 
 CHUNK_SIZE = 1024 * 1024
 
@@ -43,6 +45,10 @@ def detect_image_format(path: Path) -> tuple[str, dict[str, Any]]:
         hints["recognized_by"].append("ewf_magic")
         return "ewf", hints
 
+    if header.startswith(b"FILE"):
+        hints["recognized_by"].append("mft_file_signature")
+        return "ntfs_mft", hints
+
     if suffix in {".e01", ".ex01", ".s01"}:
         hints["recognized_by"].append("ewf_extension")
         return "ewf", hints
@@ -50,6 +56,10 @@ def detect_image_format(path: Path) -> tuple[str, dict[str, Any]]:
     if suffix in {".dd", ".img", ".raw", ".001"}:
         hints["recognized_by"].append("raw_extension")
         return "raw", hints
+
+    if path.name.lower() in {"$mft", "mft"} or suffix.lower() in {".mft"}:
+        hints["recognized_by"].append("mft_name")
+        return "ntfs_mft", hints
 
     hints["recognized_by"].append("fallback_raw")
     return "raw", hints
@@ -69,11 +79,14 @@ def parser_capabilities() -> dict[str, Any]:
     }
 
     return {
+        "dfatool": {
+            "version": dfatool_version,
+            "mft_parser": True,
+        },
         "packages": packages,
         "commands": commands,
         "sleuthkit_cli_available": bool(commands["fls"]),
         "dfvfs_available": bool(packages["dfvfs"]),
-        "supported_image_formats": ["ewf", "raw"],
-        "supported_artifacts": ["$MFT", "$UsnJrnl:$J", "Recycle Bin", "NTFS metadata"],
+        "supported_image_formats": ["extracted_ntfs_mft", "ewf", "raw"],
+        "supported_artifacts": ["NTFS:$MFT", "$UsnJrnl:$J", "Recycle Bin", "NTFS metadata"],
     }
-

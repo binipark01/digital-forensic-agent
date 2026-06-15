@@ -14,6 +14,10 @@ def test_detect_image_format_from_extension_and_magic(tmp_path: Path) -> None:
     ewf.write_bytes(b"EVF\t\r\n\xff\x00extra")
     assert detect_image_format(ewf)[0] == "ewf"
 
+    mft = tmp_path / "custom-name.bin"
+    mft.write_bytes(b"FILE0\x00\x03\x00extra")
+    assert detect_image_format(mft)[0] == "ntfs_mft"
+
 
 def test_hash_file_returns_three_hashes(tmp_path: Path) -> None:
     image = tmp_path / "image.raw"
@@ -23,4 +27,3 @@ def test_hash_file_returns_three_hashes(tmp_path: Path) -> None:
 
     assert set(hashes) == {"md5", "sha1", "sha256"}
     assert len(hashes["sha256"]) == 64
-

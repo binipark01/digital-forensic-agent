@@ -9,9 +9,23 @@ Local-first Windows NTFS triage tool for disk-image based file and deletion time
 - Stores cases, images, analysis runs, normalized timeline events, reports, and provenance in SQLite.
 - Exposes a FastAPI backend and a React dashboard.
 - Uses a parser adapter structure:
-  - sidecar timeline files for reproducible tests and demos,
-  - Sleuth Kit CLI (`mmls`, `fls`) when installed,
-  - explicit limitation warnings when forensic parsers are unavailable.
+  - first-party `dfatool` library parsing for extracted NTFS `$MFT` files,
+  - sidecar timeline files only as reproducible fallback fixtures,
+  - Sleuth Kit CLI only for explicit validation/comparison runs.
+
+## dfatool
+
+`dfatool` is the repository's first-party forensic parser toolkit. The v1 parser reads extracted NTFS `$MFT` files directly and does not call AnalyzeMFT, MFTECmd, or Sleuth Kit for normal analysis.
+
+```powershell
+cd backend
+python -m pip install -e .[dev]
+dfatool mft parse --input 'C:\evidence\$MFT' --json out.jsonl --csv out.csv
+dfatool mft timeline --input 'C:\evidence\$MFT' --output timeline.jsonl
+dfatool mft dump-record --input 'C:\evidence\$MFT' --entry 12345
+```
+
+The parser emits `NTFS:$MFT` timeline events with artifact hash, MFT entry, sequence number, record offset, and attribute offset provenance.
 
 ## Backend
 
@@ -42,9 +56,9 @@ If the repository is inside a synced drive folder and `node_modules` extraction 
 .\scripts\start-frontend-temp.ps1
 ```
 
-## Optional forensic tooling
+## Validation tooling
 
-Install The Sleuth Kit and ensure `mmls` and `fls` are on `PATH` for direct NTFS image traversal. The backend remains usable without these tools, but analysis runs will report the parser limitation and only ingest explicit sidecar timelines.
+Install The Sleuth Kit and ensure `mmls` and `fls` are on `PATH` only when you want comparison output. The default backend analysis path does not call external forensic CLIs.
 
 Sidecar demo format: create a file next to the image named `<image filename>.timeline.json` with:
 
@@ -53,7 +67,7 @@ Sidecar demo format: create a file next to the image named `<image filename>.tim
   "events": [
     {
       "timestamp": "2026-06-12T00:00:00+00:00",
-      "source_artifact": "$MFT",
+      "source_artifact": "NTFS:$MFT",
       "record_id": "42-1",
       "path": "/Users/Alice/Documents/deleted.txt",
       "action": "deleted_record_seen",

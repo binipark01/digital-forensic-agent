@@ -40,7 +40,7 @@ class ImageOut(BaseModel):
 
 class AnalysisRequest(BaseModel):
     image_id: str | None = None
-    parser_mode: Literal["auto", "sidecar", "sleuthkit"] = "auto"
+    parser_mode: Literal["auto", "dfatool_mft", "sidecar", "sleuthkit"] = "auto"
 
 
 class AnalysisRunOut(BaseModel):
@@ -104,4 +104,3 @@ class Recommendation(BaseModel):
 class RecommendationsOut(BaseModel):
     recommendations: list[Recommendation]
     generated_from_event_count: int
-

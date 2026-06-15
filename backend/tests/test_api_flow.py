@@ -6,9 +6,57 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from tests.fixtures_mft import synthetic_mft_bytes
 
 
 def test_case_image_analysis_timeline_report_flow(tmp_path: Path) -> None:
+    image = tmp_path / "$MFT"
+    image.write_bytes(synthetic_mft_bytes())
+
+    client = TestClient(create_app(tmp_path / "test.sqlite3"))
+
+    case_response = client.post("/cases", json={"name": "Test Case", "examiner": "Analyst"})
+    assert case_response.status_code == 200
+    case_id = case_response.json()["id"]
+
+    image_response = client.post(f"/cases/{case_id}/images", json={"path": str(image)})
+    assert image_response.status_code == 200
+    image_payload = image_response.json()
+    assert image_payload["format"] == "ntfs_mft"
+    assert image_payload["sha256"]
+
+    analysis_response = client.post(f"/cases/{case_id}/analysis", json={"image_id": image_payload["id"]})
+    assert analysis_response.status_code == 200
+    analysis_payload = analysis_response.json()
+    assert analysis_payload["status"] == "completed"
+    assert analysis_payload["event_count"] > 1
+
+    timeline_response = client.get(f"/cases/{case_id}/timeline")
+    assert timeline_response.status_code == 200
+    events = timeline_response.json()["events"]
+    assert any(event["source_artifact"] == "NTFS:$MFT" for event in events)
+    deleted_event = next(event for event in events if event["action"] == "deleted_record_seen")
+    assert deleted_event["provenance"]["parser"] == "dfatool.mft"
+    assert deleted_event["provenance"]["artifact_hash"] == image_payload["sha256"]
+    assert deleted_event["provenance"]["mft_entry"] == 3
+    assert deleted_event["provenance"]["sequence_number"] == 9
+    assert deleted_event["provenance"]["record_offset"] == 3072
+    assert deleted_event["provenance"]["attribute_offset"] is not None
+
+    recommendations_response = client.get(f"/cases/{case_id}/recommendations")
+    assert recommendations_response.status_code == 200
+    assert deleted_event["id"] in recommendations_response.json()["recommendations"][0]["evidence_event_ids"]
+
+    report_response = client.post(f"/cases/{case_id}/reports", json={"format": "markdown"})
+    assert report_response.status_code == 200
+    report_path = Path(report_response.json()["path"])
+    assert report_path.exists()
+    report_text = report_path.read_text(encoding="utf-8")
+    assert "Deleted file records need review" in report_text
+    assert "NTFS:$MFT" in report_text
+
+
+def test_sidecar_timeline_remains_fallback(tmp_path: Path) -> None:
     image = tmp_path / "sample.raw"
     image.write_bytes(b"sample ntfs image placeholder")
     sidecar = Path(f"{image}.timeline.json")
@@ -32,37 +80,13 @@ def test_case_image_analysis_timeline_report_flow(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    client = TestClient(create_app(tmp_path / "test.sqlite3"))
-
-    case_response = client.post("/cases", json={"name": "Test Case", "examiner": "Analyst"})
-    assert case_response.status_code == 200
-    case_id = case_response.json()["id"]
-
-    image_response = client.post(f"/cases/{case_id}/images", json={"path": str(image)})
-    assert image_response.status_code == 200
-    image_payload = image_response.json()
-    assert image_payload["format"] == "raw"
-    assert image_payload["sha256"]
+    client = TestClient(create_app(tmp_path / "fallback.sqlite3"))
+    case_id = client.post("/cases", json={"name": "Fallback Case"}).json()["id"]
+    image_payload = client.post(f"/cases/{case_id}/images", json={"path": str(image)}).json()
 
     analysis_response = client.post(f"/cases/{case_id}/analysis", json={"image_id": image_payload["id"]})
     assert analysis_response.status_code == 200
-    analysis_payload = analysis_response.json()
-    assert analysis_payload["status"] == "completed"
-    assert analysis_payload["event_count"] == 1
+    assert analysis_response.json()["event_count"] == 1
 
-    timeline_response = client.get(f"/cases/{case_id}/timeline")
-    assert timeline_response.status_code == 200
-    events = timeline_response.json()["events"]
-    assert len(events) == 1
+    events = client.get(f"/cases/{case_id}/timeline").json()["events"]
     assert events[0]["provenance"]["parser"] == "sidecar"
-
-    recommendations_response = client.get(f"/cases/{case_id}/recommendations")
-    assert recommendations_response.status_code == 200
-    assert recommendations_response.json()["recommendations"][0]["evidence_event_ids"] == [events[0]["id"]]
-
-    report_response = client.post(f"/cases/{case_id}/reports", json={"format": "markdown"})
-    assert report_response.status_code == 200
-    report_path = Path(report_response.json()["path"])
-    assert report_path.exists()
-    assert "Deleted file records need review" in report_path.read_text(encoding="utf-8")
-

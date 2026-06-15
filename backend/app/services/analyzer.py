@@ -11,6 +11,7 @@ from typing import Any
 
 from app.database import Database, dumps
 from app.services.forensics import parser_capabilities
+from dfatool.mft import build_timeline_events, parse_mft_file
 
 
 @dataclass
@@ -239,26 +240,71 @@ class SleuthKitFlsAdapter:
         return events
 
 
+class DfatoolMftAdapter:
+    name = "dfatool.mft"
+
+    def can_run(self, image_path: Path) -> bool:
+        if not image_path.exists() or image_path.stat().st_size < 1024:
+            return False
+        try:
+            with image_path.open("rb") as handle:
+                return handle.read(4) == b"FILE"
+        except OSError:
+            return False
+
+    def run(self, image: dict[str, Any]) -> AnalysisResult:
+        image_path = Path(image["path"])
+        try:
+            result = parse_mft_file(image_path, artifact_hash=image.get("sha256"))
+            events = [self._event_from_mapping(row) for row in build_timeline_events(result)]
+        except Exception as exc:  # pragma: no cover - defensive API boundary
+            return AnalysisResult([], self.name, f"dfatool MFT parser failed: {exc}")
+
+        warning = ""
+        if result.warnings:
+            warning = "; ".join(result.warnings)
+        if not events:
+            warning = warning or "dfatool parsed the MFT but produced no timeline events."
+        return AnalysisResult(events, self.name, warning)
+
+    def _event_from_mapping(self, row: dict[str, Any]) -> NormalizedEvent:
+        return NormalizedEvent(
+            timestamp=row.get("timestamp"),
+            source_artifact=row["source_artifact"],
+            record_id=str(row["record_id"]),
+            path=row.get("path") or "",
+            action=row["action"],
+            confidence=float(row["confidence"]),
+            provenance=row.get("provenance") or {},
+            attributes=row.get("attributes") or {},
+        )
+
+
 class AnalyzerService:
     def __init__(self, db: Database):
         self.db = db
+        self.dfatool_mft = DfatoolMftAdapter()
         self.sidecar = SidecarTimelineAdapter()
         self.sleuthkit = SleuthKitFlsAdapter()
 
     def analyze(self, case_id: str, image: dict[str, Any], run_id: str, parser_mode: str) -> AnalysisResult:
         image_path = Path(image["path"])
+        if parser_mode in {"auto", "dfatool_mft"} and self.dfatool_mft.can_run(image_path):
+            return self.dfatool_mft.run(image)
+
         if parser_mode in {"auto", "sidecar"} and self.sidecar.can_run(image_path):
             return self.sidecar.run(image_path)
 
-        if parser_mode in {"auto", "sleuthkit"} and self.sleuthkit.can_run(image_path):
+        if parser_mode == "sleuthkit" and self.sleuthkit.can_run(image_path):
             return self.sleuthkit.run(image_path)
 
         return AnalysisResult(
             events=[],
             parser_name="none",
             warning=(
-                "No timeline parser ran. Add a sidecar timeline or install Sleuth Kit CLI "
-                "tools (`mmls`, `fls`) for direct image traversal."
+                "No timeline parser ran. Provide an extracted NTFS $MFT file for dfatool, "
+                "or add a sidecar timeline as fallback. Sleuth Kit is available only through "
+                "explicit validation/comparison mode."
             ),
         )
 
@@ -301,4 +347,3 @@ class AnalyzerService:
             rows,
         )
         return len(rows)
-

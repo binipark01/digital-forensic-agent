@@ -12,11 +12,13 @@
 
 The analyzer supports three paths:
 
-1. Sidecar timeline files named `<image>.timeline.json`, `<image>.timeline.csv`, `<stem>.timeline.json`, or `<stem>.timeline.csv`.
-2. Sleuth Kit CLI traversal with `fls`; `mmls` is used when available to find an NTFS/basic-data partition offset.
+1. First-party `dfatool.mft` parsing when the registered input is an extracted NTFS `$MFT` file.
+2. Sidecar timeline files named `<image>.timeline.json`, `<image>.timeline.csv`, `<stem>.timeline.json`, or `<stem>.timeline.csv` as fallback.
 3. A completed-with-warnings run when no parser can run.
 
 Sidecar files are intended for regression tests, known-good examples, and controlled labs. They are not a substitute for original evidence provenance unless the sidecar itself is part of the case record.
+
+Sleuth Kit CLI traversal is retained only for explicit validation/comparison runs. Normal v1 analysis should not depend on external forensic CLIs.
 
 ## Report standards
 
@@ -28,10 +30,11 @@ Reports must include:
 - Evidence event IDs behind recommendations.
 - Timeline sample or exported full timeline.
 - Parser and provenance fields in CSV/JSON exports.
+- For MFT events, artifact hash, MFT entry, sequence number, record offset, and attribute offset.
 
 ## Known v1 limits
 
 - BitLocker images are unsupported unless already decrypted or mounted into a readable image.
-- Native `$LogFile`, `$UsnJrnl:$J`, and Recycle Bin parsing is not implemented beyond what the active parser adapter emits.
+- Native `$LogFile`, `$UsnJrnl:$J`, and Recycle Bin parsing is not implemented beyond what future first-party parsers emit.
+- Full E01/raw image filesystem traversal into `$MFT` extraction is not implemented in v1; provide an extracted `$MFT` file.
 - Large image analysis is synchronous in the API process; a durable queue should be added before multi-user or production use.
-
