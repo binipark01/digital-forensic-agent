@@ -9,7 +9,7 @@ from app.database import Database, dumps, loads
 from app.models import AnalysisWarning
 from app.services.analysis_types import AnalysisResult, NormalizedEvent, utc_now
 from app.services.forensics import parser_capabilities
-from app.services.timeline_adapters import DfatoolMftAdapter, SidecarTimelineAdapter
+from app.services.timeline_adapters import DfatoolMftAdapter, DfatoolUsnAdapter, SidecarTimelineAdapter
 from app.storage import CollectionStorage, warning_to_dict
 
 
@@ -30,6 +30,8 @@ REGISTRY = (
     RegistryEntry("sidecar_timeline", "sidecar", 10),
     RegistryEntry("ntfs_mft", "dfatool_mft", 20),
     RegistryEntry("NTFS:$MFT", "dfatool_mft", 20),
+    RegistryEntry("ntfs_usnjrnl", "dfatool_usn", 30),
+    RegistryEntry("NTFS:$UsnJrnl:$J", "dfatool_usn", 30),
 )
 
 
@@ -39,6 +41,7 @@ class ArtifactAnalysisService:
         self.storage = CollectionStorage(db)
         self.sidecar = SidecarTimelineAdapter()
         self.mft = DfatoolMftAdapter()
+        self.usn = DfatoolUsnAdapter()
 
     def analyze(self, case_id: str, artifact_ids: list[str], parser_mode: str) -> dict[str, Any]:
         artifacts = self.storage.fetch_artifacts(case_id, artifact_ids)
@@ -151,6 +154,11 @@ class ArtifactAnalysisService:
             if not self.mft.can_run(artifact_path):
                 return AnalysisResult([], "dfatool.mft", "dfatool MFT parser cannot run for this artifact.")
             return self.mft.run(artifact)
+        if entry.parser_name == "dfatool_usn":
+            artifact_path = Path(str(artifact["path"]))
+            if not self.usn.can_run(artifact_path):
+                return AnalysisResult([], "dfatool.usn", "dfatool USN parser cannot run for this artifact.")
+            return self.usn.run(artifact)
         return AnalysisResult([], "none", f"No parser is implemented for artifact type {artifact_type}.")
 
     def _read_sidecar(self, path: Path) -> AnalysisResult:

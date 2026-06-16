@@ -41,7 +41,7 @@ class ImageOut(BaseModel):
 class AnalysisRequest(BaseModel):
     image_id: str | None = None
     artifact_ids: list[str] = Field(default_factory=list)
-    parser_mode: Literal["auto", "dfatool_mft", "sidecar", "sleuthkit"] = "auto"
+    parser_mode: Literal["auto", "dfatool_mft", "dfatool_usn", "sidecar", "sleuthkit"] = "auto"
 
 
 class AnalysisRunOut(BaseModel):

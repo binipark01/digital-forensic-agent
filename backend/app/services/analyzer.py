@@ -8,7 +8,7 @@ from typing import Any
 from app.database import Database, dumps
 from app.services.analysis_types import AnalysisResult, NormalizedEvent, epoch_to_iso, utc_now
 from app.services.forensics import parser_capabilities
-from app.services.timeline_adapters import DfatoolMftAdapter, SidecarTimelineAdapter
+from app.services.timeline_adapters import DfatoolMftAdapter, DfatoolUsnAdapter, SidecarTimelineAdapter
 
 
 class SleuthKitFlsAdapter:
@@ -148,6 +148,7 @@ class AnalyzerService:
     def __init__(self, db: Database):
         self.db = db
         self.dfatool_mft = DfatoolMftAdapter()
+        self.dfatool_usn = DfatoolUsnAdapter()
         self.sidecar = SidecarTimelineAdapter()
         self.sleuthkit = SleuthKitFlsAdapter()
 
@@ -155,6 +156,9 @@ class AnalyzerService:
         image_path = Path(image["path"])
         if parser_mode in {"auto", "dfatool_mft"} and self.dfatool_mft.can_run(image_path):
             return self.dfatool_mft.run(image)
+
+        if parser_mode in {"auto", "dfatool_usn"} and self.dfatool_usn.can_run(image_path):
+            return self.dfatool_usn.run(image)
 
         if parser_mode in {"auto", "sidecar"} and self.sidecar.can_run(image_path):
             return self.sidecar.run(image_path)
@@ -166,7 +170,7 @@ class AnalyzerService:
             events=[],
             parser_name="none",
             warning=(
-                "No timeline parser ran. Provide an extracted NTFS $MFT file for dfatool, "
+                "No timeline parser ran. Provide an extracted NTFS $MFT or $UsnJrnl:$J file for dfatool, "
                 "or add a sidecar timeline as fallback. Sleuth Kit is available only through "
                 "explicit validation/comparison mode."
             ),

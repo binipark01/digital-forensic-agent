@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from tests.fixtures_mft import synthetic_mft_bytes
+from tests.fixtures_usn import synthetic_usn_bytes
 
 MFT_RELATIVE_PATH = "$MFT"
+USN_RELATIVE_PATH = "$Extend/$UsnJrnl.J"
 LOGFILE_RELATIVE_PATH = "$LogFile"
 SIDECAR_RELATIVE_PATH = "Users/Alice/AppData/Local/Timeline/deleted.timeline.json"
 MISSING_RELATIVE_PATH = "$Recycle.Bin/S-1-5-21-1000/$I123456.txt"
@@ -52,6 +54,7 @@ def collection_plan_payload(source_id: str) -> dict[str, object]:
         "evidence_source_id": source_id,
         "targets": [
             {"artifact_type": "ntfs_mft", "relative_path": MFT_RELATIVE_PATH},
+            {"artifact_type": "ntfs_usnjrnl", "relative_path": USN_RELATIVE_PATH},
             {"artifact_type": "sidecar_timeline", "relative_path": SIDECAR_RELATIVE_PATH},
             {"artifact_type": "NTFS:$LogFile", "relative_path": LOGFILE_RELATIVE_PATH},
             {"artifact_type": "recycle_bin", "relative_path": MISSING_RELATIVE_PATH},
@@ -63,6 +66,9 @@ def make_fake_windows_evidence(tmp_path: Path) -> Path:
     evidence_root = tmp_path / "fake_windows_evidence" / "C"
     evidence_root.mkdir(parents=True)
     path_for(evidence_root, MFT_RELATIVE_PATH).write_bytes(synthetic_mft_bytes())
+    usn_path = path_for(evidence_root, USN_RELATIVE_PATH)
+    usn_path.parent.mkdir(parents=True, exist_ok=True)
+    usn_path.write_bytes(synthetic_usn_bytes())
     path_for(evidence_root, LOGFILE_RELATIVE_PATH).write_bytes(b"unsupported logfile bytes")
     sidecar = path_for(evidence_root, SIDECAR_RELATIVE_PATH)
     sidecar.parent.mkdir(parents=True, exist_ok=True)

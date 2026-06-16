@@ -61,6 +61,10 @@ def detect_image_format(path: Path) -> tuple[str, dict[str, Any]]:
         hints["recognized_by"].append("mft_name")
         return "ntfs_mft", hints
 
+    if path.name.lower() in {"$usnjrnl.j", "$usnjrnl_j", "usnjrnl.j", "$j"}:
+        hints["recognized_by"].append("usn_journal_name")
+        return "ntfs_usnjrnl", hints
+
     hints["recognized_by"].append("fallback_raw")
     return "raw", hints
 
@@ -82,11 +86,19 @@ def parser_capabilities() -> dict[str, Any]:
         "dfatool": {
             "version": dfatool_version,
             "mft_parser": True,
+            "usn_parser": True,
         },
         "packages": packages,
         "commands": commands,
         "sleuthkit_cli_available": bool(commands["fls"]),
         "dfvfs_available": bool(packages["dfvfs"]),
-        "supported_image_formats": ["extracted_ntfs_mft", "ewf", "raw"],
-        "supported_artifacts": ["ntfs_mft", "NTFS:$MFT", "$UsnJrnl:$J", "Recycle Bin", "NTFS metadata"],
+        "supported_image_formats": ["extracted_ntfs_mft", "extracted_ntfs_usnjrnl", "ewf", "raw"],
+        "supported_artifacts": [
+            "ntfs_mft",
+            "NTFS:$MFT",
+            "ntfs_usnjrnl",
+            "NTFS:$UsnJrnl:$J",
+            "Recycle Bin",
+            "NTFS metadata",
+        ],
     }

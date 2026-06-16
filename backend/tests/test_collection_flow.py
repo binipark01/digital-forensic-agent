@@ -11,6 +11,7 @@ from tests.collection_flow_helpers import (
     MFT_RELATIVE_PATH,
     MISSING_RELATIVE_PATH,
     SIDECAR_RELATIVE_PATH,
+    USN_RELATIVE_PATH,
     artifacts_by_artifact_type,
     assert_status,
     collection_plan_payload,
@@ -54,7 +55,7 @@ def test_registers_evidence_source_for_read_only_windows_directory(tmp_path: Pat
 
 
 def test_collection_plan_classifies_targets_as_found_or_missing(tmp_path: Path) -> None:
-    # Given: a registered source with three present targets and one absent target.
+    # Given: a registered source with four present targets and one absent target.
     evidence_root = make_fake_windows_evidence(tmp_path)
     client = TestClient(create_app(tmp_path / "plan-classification.sqlite3"))
     case_id = create_case(client)
@@ -71,6 +72,9 @@ def test_collection_plan_classifies_targets_as_found_or_missing(tmp_path: Path) 
     payload = response.json()
     targets = targets_by_relative_path(payload["targets"])
     assert targets[MFT_RELATIVE_PATH]["classification"] == "found"
+    assert targets[USN_RELATIVE_PATH]["classification"] == "found"
+    assert targets[USN_RELATIVE_PATH]["parser_hint"]["parser"] == "dfatool.usn"
+    assert targets[USN_RELATIVE_PATH]["parser_hint"]["parser_status"] == "implemented"
     assert targets[SIDECAR_RELATIVE_PATH]["classification"] == "found"
     assert targets[LOGFILE_RELATIVE_PATH]["classification"] == "found"
     assert targets[MISSING_RELATIVE_PATH]["classification"] == "missing"
@@ -86,6 +90,7 @@ def test_plan_execution_registers_evidence_artifacts_with_streaming_hashes_witho
     evidence_root = make_fake_windows_evidence(tmp_path)
     source_paths = [
         path_for(evidence_root, MFT_RELATIVE_PATH),
+        path_for(evidence_root, USN_RELATIVE_PATH),
         path_for(evidence_root, SIDECAR_RELATIVE_PATH),
         path_for(evidence_root, LOGFILE_RELATIVE_PATH),
     ]
@@ -107,13 +112,15 @@ def test_plan_execution_registers_evidence_artifacts_with_streaming_hashes_witho
     assert_status(response, 200)
     payload = response.json()
     assert payload["status"] == "completed"
-    assert payload["registered_artifact_count"] == 3
+    assert payload["registered_artifact_count"] == 4
     artifacts_response = client.get(f"/cases/{case_id}/evidence-artifacts")
     assert_status(artifacts_response, 200)
     artifacts = artifacts_response.json()["artifacts"]
     artifacts_by_type = artifacts_by_artifact_type(artifacts)
     assert artifacts_by_type["ntfs_mft"]["path"] == str(path_for(evidence_root, MFT_RELATIVE_PATH).resolve())
     assert artifacts_by_type["ntfs_mft"]["sha256"] == sha256_file(path_for(evidence_root, MFT_RELATIVE_PATH))
+    assert artifacts_by_type["ntfs_usnjrnl"]["path"] == str(path_for(evidence_root, USN_RELATIVE_PATH).resolve())
+    assert artifacts_by_type["ntfs_usnjrnl"]["sha256"] == sha256_file(path_for(evidence_root, USN_RELATIVE_PATH))
     assert artifacts_by_type["sidecar_timeline"]["path"] == str(path_for(evidence_root, SIDECAR_RELATIVE_PATH).resolve())
     assert artifacts_by_type["sidecar_timeline"]["sha256"] == sha256_file(path_for(evidence_root, SIDECAR_RELATIVE_PATH))
     assert artifacts_by_type["NTFS:$LogFile"]["path"] == str(path_for(evidence_root, LOGFILE_RELATIVE_PATH).resolve())
@@ -223,4 +230,3 @@ def test_empty_analysis_completes_with_warning_when_nothing_is_processable(tmp_p
             "message": "No evidence artifacts, sidecar timeline artifact, or image fallback were available for analysis.",
         }
     ]
-

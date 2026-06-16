@@ -10,6 +10,7 @@ ALLOWED_SOURCE_TYPES = frozenset(
 )
 
 MFT_PARSER_HINT = {"parser": "dfatool.mft", "parser_status": "implemented", "priority": 20}
+USN_PARSER_HINT = {"parser": "dfatool.usn", "parser_status": "implemented", "priority": 30}
 SIDECAR_PARSER_HINT = {"parser": "sidecar", "parser_status": "implemented", "priority": 10}
 UNSUPPORTED_PARSER_HINT = {
     "parser": None,
@@ -21,15 +22,17 @@ UNSUPPORTED_PARSER_HINT = {
 PARSER_HINTS = {
     "ntfs_mft": MFT_PARSER_HINT,
     "NTFS:$MFT": MFT_PARSER_HINT,
+    "ntfs_usnjrnl": USN_PARSER_HINT,
+    "NTFS:$UsnJrnl:$J": USN_PARSER_HINT,
     "sidecar_timeline": SIDECAR_PARSER_HINT,
 }
 
 DEFAULT_DISCOVERY_PATTERNS = [
     ("ntfs_mft", "$MFT"),
+    ("ntfs_usnjrnl", "$Extend/$UsnJrnl.J"),
     ("NTFS:$LogFile", "$LogFile"),
     ("NTFS:$Boot", "$Boot"),
     ("NTFS:$Bitmap", "$Bitmap"),
-    ("NTFS:$UsnJrnl", "$Extend/$UsnJrnl"),
     ("recycle_bin", "$Recycle.Bin"),
     ("windows_event_log", "Windows/System32/winevt/Logs/*.evtx"),
     ("prefetch", "Windows/Prefetch/*.pf"),

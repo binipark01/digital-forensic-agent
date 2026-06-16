@@ -11,6 +11,12 @@ from dfatool.mft import build_timeline_events, parse_mft_file
 from dfatool.mft.binary import MftParseError, sha256_file
 from dfatool.mft.constants import PARSER_NAME as MFT_PARSER_NAME
 from dfatool.mft.constants import PARSER_VERSION as MFT_PARSER_VERSION
+from dfatool.usn import build_timeline_events as build_usn_timeline_events
+from dfatool.usn import can_parse_usn_file, parse_usn_file
+from dfatool.usn.binary import UsnParseError
+from dfatool.usn.binary import sha256_file as sha256_usn_file
+from dfatool.usn.constants import PARSER_NAME as USN_PARSER_NAME
+from dfatool.usn.constants import PARSER_VERSION as USN_PARSER_VERSION
 
 
 class SidecarTimelineAdapter:
@@ -113,6 +119,53 @@ class DfatoolMftAdapter:
         )
 
 
+class DfatoolUsnAdapter:
+    name = USN_PARSER_NAME
+    version = USN_PARSER_VERSION
+    max_records = 1_000_000
+    max_events = 1_000_000
+
+    def can_run(self, image_path: Path) -> bool:
+        return can_parse_usn_file(image_path)
+
+    def run(self, image: dict[str, Any]) -> AnalysisResult:
+        image_path = Path(image["path"])
+        stored_sha256 = str(image.get("sha256") or "")
+        try:
+            current_sha256 = sha256_usn_file(image_path)
+            if stored_sha256 and current_sha256 != stored_sha256:
+                return AnalysisResult([], self.name, _usn_hash_mismatch_warning(), self.version)
+            result = parse_usn_file(
+                image_path,
+                artifact_hash=stored_sha256 or current_sha256,
+                max_records=self.max_records,
+            )
+        except (UsnParseError, OSError, struct.error) as exc:
+            return AnalysisResult([], self.name, _safe_usn_parser_failure(exc), self.version)
+
+        events = [
+            self._event_from_mapping(row)
+            for row in build_usn_timeline_events(result, max_events=self.max_events)
+        ]
+        warnings = _usn_parser_warnings(result)
+        warning = "; ".join(warnings)
+        if not events:
+            warning = warning or "dfatool parsed the USN journal but produced no timeline events."
+        return AnalysisResult(events, self.name, warning, self.version)
+
+    def _event_from_mapping(self, row: dict[str, Any]) -> NormalizedEvent:
+        return NormalizedEvent(
+            timestamp=row.get("timestamp"),
+            source_artifact=row["source_artifact"],
+            record_id=str(row["record_id"]),
+            path=row.get("path") or "",
+            action=row["action"],
+            confidence=float(row["confidence"]),
+            provenance=row.get("provenance") or {},
+            attributes=row.get("attributes") or {},
+        )
+
+
 def _json_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -132,6 +185,13 @@ def _parser_warnings(result) -> list[str]:
     return warnings
 
 
+def _usn_parser_warnings(result) -> list[str]:
+    warnings = list(result.warnings)
+    for record in result.records:
+        warnings.extend(f"USN {record.usn}: {warning}" for warning in record.warnings)
+    return warnings
+
+
 def _hash_mismatch_warning() -> str:
     return "Artifact bytes changed since registration; refusing to parse ntfs_mft with stale hash."
 
@@ -139,3 +199,12 @@ def _hash_mismatch_warning() -> str:
 def _safe_parser_failure(exc: Exception) -> str:
     reason = type(exc).__name__
     return f"dfatool MFT parser failed before producing events ({reason})."
+
+
+def _usn_hash_mismatch_warning() -> str:
+    return "Artifact bytes changed since registration; refusing to parse ntfs_usnjrnl with stale hash."
+
+
+def _safe_usn_parser_failure(exc: Exception) -> str:
+    reason = type(exc).__name__
+    return f"dfatool USN parser failed before producing events ({reason})."
