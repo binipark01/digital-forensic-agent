@@ -88,5 +88,5 @@ def parser_capabilities() -> dict[str, Any]:
         "sleuthkit_cli_available": bool(commands["fls"]),
         "dfvfs_available": bool(packages["dfvfs"]),
         "supported_image_formats": ["extracted_ntfs_mft", "ewf", "raw"],
-        "supported_artifacts": ["NTFS:$MFT", "$UsnJrnl:$J", "Recycle Bin", "NTFS metadata"],
+        "supported_artifacts": ["ntfs_mft", "NTFS:$MFT", "$UsnJrnl:$J", "Recycle Bin", "NTFS metadata"],
     }

@@ -1,110 +1,14 @@
 from __future__ import annotations
 
-import csv
-import json
 import subprocess
 import uuid
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from app.database import Database, dumps
+from app.services.analysis_types import AnalysisResult, NormalizedEvent, epoch_to_iso, utc_now
 from app.services.forensics import parser_capabilities
-from dfatool.mft import build_timeline_events, parse_mft_file
-
-
-@dataclass
-class NormalizedEvent:
-    timestamp: str | None
-    source_artifact: str
-    record_id: str
-    path: str
-    action: str
-    confidence: float
-    provenance: dict[str, Any]
-    attributes: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class AnalysisResult:
-    events: list[NormalizedEvent]
-    parser_name: str
-    warning: str = ""
-
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def epoch_to_iso(value: str) -> str | None:
-    try:
-        seconds = int(value)
-    except (TypeError, ValueError):
-        return None
-    if seconds <= 0:
-        return None
-    return datetime.fromtimestamp(seconds, UTC).isoformat()
-
-
-class SidecarTimelineAdapter:
-    name = "sidecar"
-
-    def candidates(self, image_path: Path) -> list[Path]:
-        return [
-            Path(f"{image_path}.timeline.json"),
-            Path(f"{image_path}.timeline.csv"),
-            image_path.with_suffix(".timeline.json"),
-            image_path.with_suffix(".timeline.csv"),
-        ]
-
-    def can_run(self, image_path: Path) -> bool:
-        return any(candidate.exists() for candidate in self.candidates(image_path))
-
-    def run(self, image_path: Path) -> AnalysisResult:
-        for candidate in self.candidates(image_path):
-            if candidate.exists() and candidate.suffix.lower() == ".json":
-                return AnalysisResult(self._read_json(candidate), self.name)
-            if candidate.exists() and candidate.suffix.lower() == ".csv":
-                return AnalysisResult(self._read_csv(candidate), self.name)
-        return AnalysisResult([], self.name, "No sidecar timeline found.")
-
-    def _read_json(self, path: Path) -> list[NormalizedEvent]:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        rows = payload.get("events", payload if isinstance(payload, list) else [])
-        return [self._event_from_mapping(row, str(path)) for row in rows]
-
-    def _read_csv(self, path: Path) -> list[NormalizedEvent]:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            return [self._event_from_mapping(row, str(path)) for row in csv.DictReader(handle)]
-
-    def _event_from_mapping(self, row: dict[str, Any], source_path: str) -> NormalizedEvent:
-        provenance = row.get("provenance") or {}
-        if isinstance(provenance, str):
-            try:
-                provenance = json.loads(provenance)
-            except json.JSONDecodeError:
-                provenance = {"raw": provenance}
-        provenance.setdefault("parser", self.name)
-        provenance.setdefault("source_path", source_path)
-
-        attributes = row.get("attributes") or {}
-        if isinstance(attributes, str):
-            try:
-                attributes = json.loads(attributes)
-            except json.JSONDecodeError:
-                attributes = {"raw": attributes}
-
-        return NormalizedEvent(
-            timestamp=row.get("timestamp") or None,
-            source_artifact=row.get("source_artifact") or "$MFT",
-            record_id=str(row.get("record_id") or ""),
-            path=row.get("path") or "",
-            action=row.get("action") or "observed",
-            confidence=float(row.get("confidence") or 0.75),
-            provenance=provenance,
-            attributes=attributes,
-        )
+from app.services.timeline_adapters import DfatoolMftAdapter, SidecarTimelineAdapter
 
 
 class SleuthKitFlsAdapter:
@@ -238,46 +142,6 @@ class SleuthKitFlsAdapter:
                 )
 
         return events
-
-
-class DfatoolMftAdapter:
-    name = "dfatool.mft"
-
-    def can_run(self, image_path: Path) -> bool:
-        if not image_path.exists() or image_path.stat().st_size < 1024:
-            return False
-        try:
-            with image_path.open("rb") as handle:
-                return handle.read(4) == b"FILE"
-        except OSError:
-            return False
-
-    def run(self, image: dict[str, Any]) -> AnalysisResult:
-        image_path = Path(image["path"])
-        try:
-            result = parse_mft_file(image_path, artifact_hash=image.get("sha256"))
-            events = [self._event_from_mapping(row) for row in build_timeline_events(result)]
-        except Exception as exc:  # pragma: no cover - defensive API boundary
-            return AnalysisResult([], self.name, f"dfatool MFT parser failed: {exc}")
-
-        warning = ""
-        if result.warnings:
-            warning = "; ".join(result.warnings)
-        if not events:
-            warning = warning or "dfatool parsed the MFT but produced no timeline events."
-        return AnalysisResult(events, self.name, warning)
-
-    def _event_from_mapping(self, row: dict[str, Any]) -> NormalizedEvent:
-        return NormalizedEvent(
-            timestamp=row.get("timestamp"),
-            source_artifact=row["source_artifact"],
-            record_id=str(row["record_id"]),
-            path=row.get("path") or "",
-            action=row["action"],
-            confidence=float(row["confidence"]),
-            provenance=row.get("provenance") or {},
-            attributes=row.get("attributes") or {},
-        )
 
 
 class AnalyzerService:

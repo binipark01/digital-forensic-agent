@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware import Middleware, _MiddlewareFactory
+from starlette.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.collection_routes import register_collection_routes
 from app.database import Database, dumps, loads
 from app.schemas import (
     AnalysisRequest,
@@ -22,10 +25,16 @@ from app.schemas import (
     ReportRequest,
     TimelineResponse,
 )
+from app.services.artifact_analysis import ArtifactAnalysisService
 from app.services.analyzer import AnalyzerService, utc_now
 from app.services.forensics import detect_image_format, hash_file, parser_capabilities
 from app.services.recommendations import build_recommendations
 from app.services.reports import render_report, write_report
+from app.storage import CollectionStorage
+
+Receive = Callable[[], Awaitable[Any]]
+Send = Callable[[Any], Awaitable[None]]
+AsgiApp = Callable[[Any, Receive, Send], Awaitable[None]]
 
 
 def default_db_path() -> Path:
@@ -44,18 +53,27 @@ def cors_origins() -> list[str]:
     ]
 
 
-def create_app(db_path: Path | str | None = None) -> FastAPI:
-    db = Database(db_path or default_db_path())
-    app = FastAPI(title="Digital Forensic Automation Agent", version=__version__)
-    app.state.db = db
-
-    app.add_middleware(
-        CORSMiddleware,
+def cors_middleware(app: AsgiApp, /) -> AsgiApp:
+    return CORSMiddleware(
+        app,
         allow_origins=cors_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+cors_middleware_factory: _MiddlewareFactory[[]] = cors_middleware
+
+
+def create_app(db_path: Path | str | None = None) -> FastAPI:
+    db = Database(db_path or default_db_path())
+    app = FastAPI(
+        title="Digital Forensic Automation Agent",
+        version=__version__,
+        middleware=[Middleware(cors_middleware_factory)],
+    )
+    app.state.db = db
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -165,6 +183,22 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
     @app.post("/cases/{case_id}/analysis", response_model=AnalysisRunOut)
     def start_analysis(case_id: str, payload: AnalysisRequest, database: Database = Depends(get_db)) -> dict[str, Any]:
         require_case(database, case_id)
+        if payload.artifact_ids:
+            try:
+                return ArtifactAnalysisService(database).analyze(case_id, payload.artifact_ids, payload.parser_mode)
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if payload.image_id is None:
+            artifact_ids = [row["id"] for row in CollectionStorage(database).list_artifacts(case_id)]
+            if artifact_ids:
+                return ArtifactAnalysisService(database).analyze(case_id, artifact_ids, payload.parser_mode)
+            latest_image = database.fetchone(
+                "SELECT id FROM images WHERE case_id = ? ORDER BY registered_at DESC LIMIT 1",
+                (case_id,),
+            )
+            if latest_image is None:
+                return complete_without_processable_evidence(database, case_id, payload.parser_mode)
+
         image = resolve_image(database, case_id, payload.image_id)
         run_id = str(uuid.uuid4())
         started_at = utc_now()
@@ -233,7 +267,8 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
             params.append(f"%{path_query}%")
 
         where_sql = " AND ".join(where)
-        total = database.fetchone(f"SELECT COUNT(*) AS count FROM timeline_events WHERE {where_sql}", params)["count"]
+        total_row = database.fetchone(f"SELECT COUNT(*) AS count FROM timeline_events WHERE {where_sql}", params)
+        total = total_row["count"] if total_row else 0
         rows = database.fetchall(
             f"""
             SELECT * FROM timeline_events
@@ -283,13 +318,17 @@ def create_app(db_path: Path | str | None = None) -> FastAPI:
             """,
             (report_id, case_id, payload.format, str(output_path), generated_at, len(events), preview),
         )
-        return database.fetchone("SELECT * FROM reports WHERE id = ?", (report_id,))
+        report = database.fetchone("SELECT * FROM reports WHERE id = ?", (report_id,))
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return report
 
     @app.get("/cases/{case_id}/reports", response_model=list[ReportOut])
     def list_reports(case_id: str, database: Database = Depends(get_db)) -> list[dict[str, Any]]:
         require_case(database, case_id)
         return database.fetchall("SELECT * FROM reports WHERE case_id = ? ORDER BY generated_at DESC", (case_id,))
 
+    register_collection_routes(app, get_db, require_case)
     return app
 
 
@@ -317,6 +356,37 @@ def resolve_image(database: Database, case_id: str, image_id: str | None) -> dic
     return normalize_image(image)
 
 
+def complete_without_processable_evidence(database: Database, case_id: str, parser_mode: str) -> dict[str, Any]:
+    run_id = str(uuid.uuid4())
+    now = utc_now()
+    message = "No evidence artifacts, sidecar timeline artifact, or image fallback were available for analysis."
+    warning = {"code": "no_processable_evidence", "message": message}
+    database.execute(
+        """
+        INSERT INTO analysis_runs (
+            id, case_id, image_id, artifact_id, status, parser_mode, started_at,
+            completed_at, command_line, tool_versions, warning, warnings, event_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            case_id,
+            None,
+            None,
+            "completed_with_warnings",
+            parser_mode,
+            now,
+            now,
+            f"analyze --case {case_id} --parser-mode {parser_mode}",
+            dumps({**parser_capabilities(), "selected_parser": None}),
+            message,
+            dumps([warning]),
+            0,
+        ),
+    )
+    return normalize_run(database.fetchone("SELECT * FROM analysis_runs WHERE id = ?", (run_id,)))
+
+
 def fetch_all_events(database: Database, case_id: str) -> list[dict[str, Any]]:
     return database.fetchall(
         """
@@ -341,6 +411,7 @@ def normalize_run(row: dict[str, Any] | None) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Analysis run not found")
     normalized = dict(row)
     normalized["tool_versions"] = loads(normalized["tool_versions"], {})
+    normalized["warnings"] = loads(normalized.get("warnings"), [])
     return normalized
 
 

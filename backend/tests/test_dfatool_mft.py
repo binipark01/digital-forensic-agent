@@ -44,19 +44,97 @@ def test_timeline_events_include_required_mft_provenance(tmp_path: Path) -> None
     result = parse_mft_file(write_fixture(tmp_path))
     events = build_timeline_events(result)
 
-    assert any(event["action"] == "si_created" for event in events)
-    assert any(event["action"] == "fn_created" for event in events)
+    assert any(
+        event["action"] == "file_created"
+        and event["source_artifact"] == "NTFS:$MFT:$STANDARD_INFORMATION"
+        for event in events
+    )
+    assert any(
+        event["action"] == "file_created"
+        and event["source_artifact"] == "NTFS:$MFT:$FILE_NAME"
+        for event in events
+    )
     deleted = next(event for event in events if event["action"] == "deleted_record_seen")
     ads = next(event for event in events if event["action"] == "ads_detected")
+    directory = next(
+        event
+        for event in events
+        if event["record_id"] == "1-3"
+        and event["action"] == "file_created"
+        and event["source_artifact"] == "NTFS:$MFT:$FILE_NAME"
+    )
 
-    assert deleted["source_artifact"] == "NTFS:$MFT"
+    assert deleted["source_artifact"] == "NTFS:$MFT:$FILE_NAME"
     assert deleted["path"] == "/Users/deleted.txt"
-    assert deleted["provenance"]["artifact_hash"] == result.artifact_hash
-    assert deleted["provenance"]["mft_entry"] == 3
+    assert deleted["provenance"]["artifact_sha256"] == result.artifact_hash
+    assert deleted["provenance"]["parser_name"] == "dfatool.mft"
+    assert deleted["provenance"]["parser_version"]
+    assert deleted["provenance"]["mft_entry_number"] == 3
     assert deleted["provenance"]["sequence_number"] == 9
     assert deleted["provenance"]["record_offset"] == 3072
     assert deleted["provenance"]["attribute_offset"] is not None
+    assert deleted["provenance"]["timestamp_source"] == "$FILE_NAME"
+    assert deleted["provenance"]["file_name"] == "deleted.txt"
+    assert deleted["attributes"]["is_deleted"] is True
+    assert deleted["attributes"]["is_directory"] is False
+    assert deleted["attributes"]["path_confidence"] == "low"
+    assert "deleted" in " ".join(deleted["attributes"]["path_warnings"]).lower()
+    assert directory["attributes"]["is_directory"] is True
+    assert directory["attributes"]["file_name"] == "Users"
     assert ads["attributes"]["stream_name"] == "Zone.Identifier"
+
+
+def test_malformed_record_warns_without_stopping_valid_neighbors(tmp_path: Path) -> None:
+    path = write_fixture(tmp_path)
+    payload = bytearray(path.read_bytes())
+    payload[1024:1028] = b"BAAD"
+    path.write_bytes(bytes(payload))
+
+    result = parse_mft_file(path)
+    events = build_timeline_events(result)
+
+    assert len(result.records) == 3
+    assert any("invalid FILE signature" in warning for warning in result.warnings)
+    assert any(
+        event["record_id"] == "2-7" and event["action"] == "file_created"
+        for event in events
+    )
+
+
+def test_parser_record_and_timeline_limits_are_warning_scoped(tmp_path: Path) -> None:
+    path = write_fixture(tmp_path)
+
+    result = parse_mft_file(path, max_records=2)
+    events = build_timeline_events(result, max_events=3)
+
+    assert len(result.records) == 2
+    assert len(events) == 3
+    assert any("record processing limit reached" in warning for warning in result.warnings)
+    assert any("timeline event limit reached" in warning for warning in result.warnings)
+
+
+def test_parser_limits_invalid_record_flood_and_suppresses_extra_warnings(tmp_path: Path) -> None:
+    path = tmp_path / "$MFT"
+    path.write_bytes(b"BAAD" + (b"x" * 1020) + b"NOPE" + (b"y" * 1020) + b"JUNK" + (b"z" * 1020))
+
+    result = parse_mft_file(path, max_records=2, max_warnings=1)
+
+    assert len(result.records) == 0
+    assert any("invalid FILE signature" in warning for warning in result.warnings)
+    assert any("parser warning limit reached" in warning for warning in result.warnings)
+    assert any("no valid MFT FILE records found" in warning for warning in result.warnings)
+    assert not any("JUNK" in warning for warning in result.warnings)
+
+
+def test_parser_limits_zero_filled_sparse_record_slots(tmp_path: Path) -> None:
+    path = tmp_path / "$MFT"
+    path.write_bytes((b"\x00" * 2048) + synthetic_mft_bytes())
+
+    result = parse_mft_file(path, max_records=2)
+
+    assert result.records == []
+    assert any("record processing limit reached" in warning for warning in result.warnings)
+    assert any("no valid MFT FILE records found" in warning for warning in result.warnings)
 
 
 def test_dump_record_returns_single_record(tmp_path: Path) -> None:
@@ -84,7 +162,7 @@ def test_dfatool_cli_parse_timeline_and_dump(tmp_path: Path, capsys) -> None:
 
     assert records[2]["path"] == "/Users/report.txt"
     assert "entry,sequence_number,record_offset" in csv_path.read_text(encoding="utf-8")
-    assert any(event["source_artifact"] == "NTFS:$MFT" for event in events)
+    assert any(event["source_artifact"].startswith("NTFS:$MFT:") for event in events)
     assert dumped["record"]["entry"] == 2
 
 
@@ -94,38 +172,38 @@ def test_synthetic_timeline_golden_output(tmp_path: Path) -> None:
     golden = [
         {
             "timestamp": "2026-01-01T00:00:02+00:00",
-            "source_artifact": "NTFS:$MFT",
+            "source_artifact": "NTFS:$MFT:$STANDARD_INFORMATION",
             "record_id": "2-7",
             "path": "/Users/report.txt",
-            "action": "si_created",
-            "mft_entry": 2,
+            "action": "file_created",
+            "mft_entry_number": 2,
             "attribute_type": "$STANDARD_INFORMATION",
         },
         {
             "timestamp": "2026-02-01T00:00:00+00:00",
-            "source_artifact": "NTFS:$MFT",
+            "source_artifact": "NTFS:$MFT:$FILE_NAME",
             "record_id": "2-7",
             "path": "/Users/report.txt",
-            "action": "fn_created",
-            "mft_entry": 2,
+            "action": "file_created",
+            "mft_entry_number": 2,
             "attribute_type": "$FILE_NAME",
         },
         {
             "timestamp": "2026-02-03T00:00:00+00:00",
-            "source_artifact": "NTFS:$MFT",
+            "source_artifact": "NTFS:$MFT:$FILE_NAME",
             "record_id": "3-9",
             "path": "/Users/deleted.txt",
             "action": "deleted_record_seen",
-            "mft_entry": 3,
+            "mft_entry_number": 3,
             "attribute_type": "$FILE_NAME",
         },
         {
             "timestamp": "2026-01-03T00:00:03+00:00",
-            "source_artifact": "NTFS:$MFT",
+            "source_artifact": "NTFS:$MFT:$DATA",
             "record_id": "3-9",
             "path": "/Users/deleted.txt",
             "action": "ads_detected",
-            "mft_entry": 3,
+            "mft_entry_number": 3,
             "attribute_type": "$DATA",
         },
     ]
@@ -136,17 +214,21 @@ def test_synthetic_timeline_golden_output(tmp_path: Path) -> None:
             "record_id": event["record_id"],
             "path": event["path"],
             "action": event["action"],
-            "mft_entry": event["provenance"]["mft_entry"],
+            "mft_entry_number": event["provenance"]["mft_entry_number"],
             "attribute_type": event["provenance"]["attribute_type"],
         }
         for event in events
         if (event["record_id"], event["action"]) in {
-            ("2-7", "si_created"),
-            ("2-7", "fn_created"),
+            ("2-7", "file_created"),
             ("3-9", "deleted_record_seen"),
             ("3-9", "ads_detected"),
+        }
+        and event["source_artifact"]
+        in {
+            "NTFS:$MFT:$STANDARD_INFORMATION",
+            "NTFS:$MFT:$FILE_NAME",
+            "NTFS:$MFT:$DATA",
         }
     ]
 
     assert projected == golden
-

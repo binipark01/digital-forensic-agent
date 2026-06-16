@@ -34,14 +34,17 @@ def test_case_image_analysis_timeline_report_flow(tmp_path: Path) -> None:
     timeline_response = client.get(f"/cases/{case_id}/timeline")
     assert timeline_response.status_code == 200
     events = timeline_response.json()["events"]
-    assert any(event["source_artifact"] == "NTFS:$MFT" for event in events)
+    assert any(event["source_artifact"].startswith("NTFS:$MFT:") for event in events)
     deleted_event = next(event for event in events if event["action"] == "deleted_record_seen")
     assert deleted_event["provenance"]["parser"] == "dfatool.mft"
-    assert deleted_event["provenance"]["artifact_hash"] == image_payload["sha256"]
-    assert deleted_event["provenance"]["mft_entry"] == 3
+    assert deleted_event["provenance"]["parser_name"] == "dfatool.mft"
+    assert deleted_event["provenance"]["parser_version"]
+    assert deleted_event["provenance"]["artifact_sha256"] == image_payload["sha256"]
+    assert deleted_event["provenance"]["mft_entry_number"] == 3
     assert deleted_event["provenance"]["sequence_number"] == 9
     assert deleted_event["provenance"]["record_offset"] == 3072
     assert deleted_event["provenance"]["attribute_offset"] is not None
+    assert deleted_event["attributes"]["path_confidence"] == "low"
 
     recommendations_response = client.get(f"/cases/{case_id}/recommendations")
     assert recommendations_response.status_code == 200

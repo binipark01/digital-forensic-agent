@@ -30,10 +30,59 @@ CREATE TABLE IF NOT EXISTS images (
     parser_hints TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS evidence_sources (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    root_path TEXT NOT NULL,
+    registered_at TEXT NOT NULL,
+    metadata TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS collection_plans (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    evidence_source_id TEXT NOT NULL REFERENCES evidence_sources(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    executed_at TEXT,
+    registered_artifact_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS collection_targets (
+    id TEXT PRIMARY KEY,
+    plan_id TEXT NOT NULL REFERENCES collection_plans(id) ON DELETE CASCADE,
+    artifact_type TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    resolved_path TEXT,
+    classification TEXT NOT NULL,
+    parser_hint TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS evidence_artifacts (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    evidence_source_id TEXT NOT NULL REFERENCES evidence_sources(id) ON DELETE CASCADE,
+    collection_plan_id TEXT NOT NULL REFERENCES collection_plans(id) ON DELETE CASCADE,
+    collection_target_id TEXT NOT NULL REFERENCES collection_targets(id) ON DELETE CASCADE,
+    artifact_type TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    md5 TEXT NOT NULL,
+    sha1 TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    parser_hint TEXT NOT NULL,
+    registered_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS analysis_runs (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-    image_id TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    image_id TEXT REFERENCES images(id) ON DELETE CASCADE,
+    artifact_id TEXT REFERENCES evidence_artifacts(id) ON DELETE SET NULL,
     status TEXT NOT NULL,
     parser_mode TEXT NOT NULL,
     started_at TEXT NOT NULL,
@@ -41,13 +90,15 @@ CREATE TABLE IF NOT EXISTS analysis_runs (
     command_line TEXT NOT NULL,
     tool_versions TEXT NOT NULL,
     warning TEXT NOT NULL DEFAULT '',
+    warnings TEXT NOT NULL DEFAULT '[]',
     event_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS timeline_events (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-    image_id TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    image_id TEXT REFERENCES images(id) ON DELETE CASCADE,
+    artifact_id TEXT REFERENCES evidence_artifacts(id) ON DELETE SET NULL,
     run_id TEXT NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
     timestamp TEXT,
     source_artifact TEXT NOT NULL,
@@ -91,14 +142,23 @@ class Database:
     def initialize(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.executescript(SCHEMA)
+            self._ensure_column(conn, "analysis_runs", "artifact_id", "TEXT")
+            self._ensure_column(conn, "analysis_runs", "warnings", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(conn, "timeline_events", "artifact_id", "TEXT")
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> None:
         with self.connect() as conn:
             conn.execute(sql, tuple(params))
 
     def executemany(self, sql: str, rows: Iterable[Iterable[Any]]) -> None:
+        materialized = [tuple(row) for row in rows]
         with self.connect() as conn:
-            conn.executemany(sql, rows)
+            conn.executemany(sql, materialized)
 
     def fetchone(self, sql: str, params: Iterable[Any] = ()) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -119,4 +179,3 @@ def loads(value: str | None, default: Any = None) -> Any:
     if not value:
         return default
     return json.loads(value)
-

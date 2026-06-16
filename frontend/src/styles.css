@@ -13,6 +13,7 @@
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
 }
 
 button,
@@ -31,8 +32,10 @@ button:disabled {
 }
 
 .appShell {
+  width: 100%;
   min-height: 100vh;
   padding: 24px;
+  overflow-x: hidden;
 }
 
 .topBar {
@@ -73,9 +76,11 @@ button:disabled {
 .statusStrip span,
 .alert,
 .panelTitle,
+.artifactRow,
 .imageRow,
 .reportRow,
-.runStatus {
+.runStatus,
+.targetListHeader {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -110,6 +115,8 @@ button:disabled {
 .toolPanel,
 .timelineSection,
 .evidencePanel {
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid #d7dde2;
   border-radius: 8px;
   background: #ffffff;
@@ -265,6 +272,7 @@ button:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
+  min-width: 0;
   padding: 18px;
   border: 1px solid #d7dde2;
   border-radius: 8px;
@@ -279,9 +287,9 @@ button:focus-visible {
 
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(72px, 1fr));
+  grid-template-columns: repeat(4, minmax(72px, 1fr));
   gap: 8px;
-  min-width: 260px;
+  min-width: 340px;
 }
 
 .metric {
@@ -307,6 +315,139 @@ button:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
   gap: 18px;
+}
+
+.collectionPanel {
+  display: grid;
+  gap: 14px;
+}
+
+.collectionColumns {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.15fr) minmax(260px, 0.85fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.sourceList,
+.artifactList {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sourceButton {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  color: #1f2933;
+  text-align: left;
+  background: #ffffff;
+}
+
+.sourceButton.active {
+  border-color: #0f766e;
+  background: #eef7f4;
+}
+
+.sourceButton span,
+.artifactRow span,
+.targetRow span {
+  overflow-wrap: anywhere;
+  color: #667085;
+}
+
+.planToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.statusPill {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #d7dde2;
+  border-radius: 6px;
+  color: #475467;
+  background: #fbfcfd;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.targetColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.targetList {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e3e8ed;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.targetListHeader {
+  margin-bottom: 8px;
+  color: #27343b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.targetRow {
+  display: grid;
+  gap: 6px;
+  padding: 9px 0;
+  border-top: 1px solid #e3e8ed;
+}
+
+.targetRow div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.targetRow:first-of-type {
+  border-top: 0;
+}
+
+.targetRow.found strong {
+  color: #0f766e;
+}
+
+.targetRow.missing strong {
+  color: #9f2d20;
+}
+
+.targetRow code {
+  width: fit-content;
+}
+
+.artifactRow {
+  align-items: flex-start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e3e8ed;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.artifactRow div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.artifactRow small {
+  overflow-wrap: anywhere;
+  color: #7c2d12;
 }
 
 .toolPanel,
@@ -519,6 +660,7 @@ code {
 
 @media (max-width: 1100px) {
   .workspaceGrid,
+  .collectionColumns,
   .operationsGrid,
   .bottomGrid,
   .timelineGrid {
@@ -546,10 +688,20 @@ code {
   }
 
   .metrics,
+  .targetColumns,
   .filterBar,
   .inlineForm,
   .reportActions {
     grid-template-columns: 1fr;
+  }
+
+  .planToolbar {
+    align-items: stretch;
+  }
+
+  .planToolbar > button,
+  .statusPill {
+    width: 100%;
   }
 
   .eventHeader,
